@@ -1,3 +1,5 @@
+//authRoutes.js code
+
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -6,6 +8,7 @@ import dotenv from "dotenv";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import session from "express-session";
+import { verifyToken } from "../middleware/auth.js";
 
 dotenv.config();
 const router = express.Router();
@@ -127,6 +130,14 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Invalid credentials" });
     }
 
+    if (user.rows[0].last_login === null) {
+      let _ = await pool.query(
+        "UPDATE users SET last_login = NOW() WHERE email = $1 RETURNING *",
+        [email]
+      );
+      firstTimeLogin = true;
+    }
+
     // Generate JWT Token
     const token = jwt.sign(
       { userId: user.rows[0].id, email: user.rows[0].email },
@@ -134,7 +145,21 @@ router.post("/login", async (req, res) => {
       { expiresIn: "1h" }
     );
 
-    res.json({ message: "Login successful", token });
+    // Set JWT in an HTTP-only cookie
+    res.cookie("authToken", token, {
+      httpOnly: true, // Prevent client-side access
+      secure: process.env.NODE_ENV === "production", // Use secure cookies in production
+      sameSite: "Strict", // Prevent CSRF
+      maxAge: 3600000, // 1 hour expiration
+    });
+
+    res.cookie("firstTimeLogin", firstTimeLogin, {
+      httpOnly: true, // Prevent client-side access
+      secure: false, // Use secure cookies in production
+      sameSite: "Strict", // Prevent CSRF
+    });
+
+    res.json({ message: "Login successful" });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
@@ -157,23 +182,6 @@ router.post("/login", async (req, res) => {
 router.get("/protected", verifyToken, (req, res) => {
   res.json({ message: "Protected route accessed!", user: req.user });
 });
-
-// Middleware to verify JWT
-function verifyToken(req, res, next) {
-  const token = req.header("Authorization");
-  if (!token) return res.status(401).json({ message: "Access Denied" });
-
-  try {
-    const verified = jwt.verify(
-      token.replace("Bearer ", ""),
-      process.env.JWT_SECRET
-    );
-    req.user = verified;
-    next();
-  } catch (error) {
-    res.status(400).json({ message: "Invalid Token" });
-  }
-}
 
 router.use(
   session({
@@ -203,11 +211,10 @@ passport.use(
 
         if (user.rows.length === 0) {
           user = await pool.query(
-            "INSERT INTO users (name, email, password, google_id) VALUES ($1, $2, $3, $4) RETURNING *",
+            "INSERT INTO users (name, email, password, google_id, last_login) VALUES ($1, $2, $3, $4, NULL) RETURNING *",
             [profile.displayName, email, null, profile.id]
           );
         }
-
         return done(null, user.rows[0]);
       } catch (error) {
         return done(error, null);
@@ -232,7 +239,7 @@ router.get(
 router.get(
   "/google/callback",
   passport.authenticate("google", { failureRedirect: "/login" }),
-  (req, res) => {
+  async (req, res) => {
     const token = jwt.sign(
       { userId: req.user.id, email: req.user.email },
       process.env.JWT_SECRET,
@@ -241,12 +248,33 @@ router.get(
       }
     );
 
+    let firstTimeLogin = false;
+
+    const user = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
+
+    if (user.rows[0].last_login === null) {
+      let _ = await pool.query(
+        "UPDATE users SET last_login = NOW() WHERE email = $1 RETURNING *",
+        [email]
+      );
+      firstTimeLogin = true;
+    }
+    
+
     // Set JWT in an HTTP-only cookie
     res.cookie("authToken", token, {
       httpOnly: true, // Prevent client-side access
       secure: process.env.NODE_ENV === "production", // Use secure cookies in production
       sameSite: "Strict", // Prevent CSRF
       maxAge: 3600000, // 1 hour expiration
+    });
+
+    res.cookie("firstTimeLogin", firstTimeLogin, {
+      httpOnly: true, // Prevent client-side access
+      secure: false, // Use secure cookies in production
+      sameSite: "Strict", // Prevent CSRF
     });
 
     res.redirect(`${process.env.CLIENT_URL}/dashboard`);

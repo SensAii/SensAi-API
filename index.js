@@ -4,9 +4,10 @@ import cors from "cors";
 import pkg from "pg";
 import swaggerJsdoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
+import cookieParser from "cookie-parser";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
-import cookieParser from "cookie-parser";
+import sessionRoutes from "./routes/sessionRoutes.js";
 
 dotenv.config();
 const { Pool } = pkg;
@@ -52,6 +53,7 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
+app.use("/api/sessions", sessionRoutes);
 
 // Start Server
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
