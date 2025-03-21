@@ -8,6 +8,7 @@ import cookieParser from "cookie-parser";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import sessionRoutes from "./routes/sessionRoutes.js";
+import onboardingRoutes from "./routes/onboardingRoutes.js";
 
 dotenv.config();
 const { Pool } = pkg;
@@ -54,6 +55,7 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/sessions", sessionRoutes);
+app.use('/api/onboarding', onboardingRoutes);
 
 // Start Server
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

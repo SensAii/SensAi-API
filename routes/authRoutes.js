@@ -251,17 +251,16 @@ router.get(
     let firstTimeLogin = false;
 
     const user = await pool.query("SELECT * FROM users WHERE email = $1", [
-      email,
+      req.user.email,
     ]);
 
     if (user.rows[0].last_login === null) {
       let _ = await pool.query(
         "UPDATE users SET last_login = NOW() WHERE email = $1 RETURNING *",
-        [email]
+        [user.email]
       );
       firstTimeLogin = true;
     }
-    
 
     // Set JWT in an HTTP-only cookie
     res.cookie("authToken", token, {
@@ -289,10 +288,13 @@ router.get(
  *     tags: [Authentication]
  */
 router.get("/logout", (req, res) => {
-  res.clearCookie("authToken", { httpOnly: true, secure: true, sameSite: "Strict" });
+  res.clearCookie("authToken", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Strict",
+  });
   res.json({ message: "Logged out successfully" });
 });
-
 
 /**
  * @swagger
@@ -306,17 +308,45 @@ router.get("/logout", (req, res) => {
 router.get("/me", verifyToken, async (req, res) => {
   try {
     const user = await pool.query(
-      "SELECT id, name, email FROM users WHERE id = $1",
+      "SELECT id, email, name, google_id, created_at, last_login, onboarding_completed FROM users WHERE id = $1",
       [req.user.userId]
     );
+
+    const prefResult = await pool.query(
+      'SELECT initial_attention_span, preferred_study_time, common_distractions, avg_study_duration FROM user_preferences WHERE user_id = $1',
+      [req.user.userId]
+  );
 
     if (user.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json(user.rows[0]);
+    res.json({
+            ...user.rows[0],
+            preferences: prefResult.rows[0] || {}
+        });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+router.get("/check-auth", (req, res) => {
+  const token = req.cookies.authToken;
+  if (!token) {
+    return res.status(401).json({ isAuthenticated: false });
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    res.json({
+      isAuthenticated: true,
+      user: {
+        id: decoded.userId, // Matches the 'userId' field in the token
+        email: decoded.email, // Matches the 'email' field in the token
+      },
+    });
+  } catch (err) {
+    // Token is invalid or expired
+    res.status(401).json({ isAuthenticated: false });
   }
 });
 
